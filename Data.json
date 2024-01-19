@@ -1,5 +1,3 @@
-//Please add your own discord bot token here 
-
 {
-  "token": "Token" 
+  "token": "Token" // This can be created at: https://discord.com/developers/applications
  } 
