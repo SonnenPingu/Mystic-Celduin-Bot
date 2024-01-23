@@ -88,6 +88,19 @@ client.on('guildMemberRemove', (member) => {
     channel.send({ embeds: [goodbyeEmbed] });
 });
 
+
+client.on('guildMemberAdd', async (member) => {
+  const channel = member.guild.channels.cache.get('1081182553681178734');
+
+  if (!channel) {
+    console.error('Willkommenskanal nicht gefunden.');
+    return;
+  }
+
+  const welcomeEmbed = createWelcomeEmbed(member.user.tag, member);
+  channel.send({ embeds: [welcomeEmbed] });
+});
+
 const excludedRoles = ['roleid', 'roleid1']; // Füge die IDs der ausgeschlossenen Rollen hinzu
 
 client.on('messageReactionAdd', async (reaction, user) => {
