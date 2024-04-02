@@ -1,13 +1,23 @@
-//The bot's main file. 
-const { Client, Intents, MessageEmbed, MessageActionRow, MessageButton } = require('discord.js');
+const { ModalBuilder, Events, TextInputStyle, TextInputBuilder, ActionRowBuilder, Client, GatewayIntentBits, EmbedBuilder, ButtonBuilder, PermissionsBitField,Partials } = require('discord.js');
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMessages,
+		GatewayIntentBits.MessageContent, // Required for accessing message content
+    GatewayIntentBits.DirectMessages, // Required for DM interactions
+    GatewayIntentBits.DirectMessageTyping, // Optional for detecting typing in DMs
+  ],
+    partials: [Partials.Message, Partials.Channel, Partials.Reaction]
+});
+const supporterRoleId = 'SUPPORTID'; // Replace this with the ID of the supporter role
+const targetChannelId = 'TARGTCHANNELID'; // Enter the ID of the target channel here
+const excludedRoles = ['ID1', 'ID2']; // Add the IDs of the excluded roles
 const fs = require('fs');
 const axios = require('axios');
-const client = new Client({ intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES, Intents.FLAGS.GUILD_MESSAGE_REACTIONS, Intents.FLAGS.GUILD_MEMBERS] });
-const targetChannelId = 'Id'; // Die ID des Zielkanals hier eintragen
-const targetChannelId1 = 'Id1'; 
 let config;
 
-// Lese die Konfiguration aus der JSON-Datei
 try {
     const data = fs.readFileSync('data.json');
     config = JSON.parse(data);
@@ -16,585 +26,869 @@ try {
     process.exit(1);
 }
 
-// Verwende den in der Konfiguration angegebenen Token
-const TOKEN = config.token;
+process.on('unhandledRejection', error => {
+    logError('unhandledRejection', error);
+});
 
+
+process.on('uncaughtException', error => {
+    logError('uncaughtException', error);
+    process.exit(1); // Exit the process
+});
+
+process.on('uncaughtException', error => {
+    logError('globalError', error);
+    process.exit(1); // Exit the process
+});
+
+function logError(type, error) {
+    const errorLog = {
+        type: type,
+        timestamp: new Date().toISOString(),
+        error: error.stack || error.toString()
+    };
+    fs.appendFileSync('errorLog.json', JSON.stringify(errorLog) + '\n');
+    console.error(`${type}:`, error);
+}
+
+const TOKEN = config.token;
+const activeTickets = new Map(); 
 const activeGiveaways = new Map();
 
-client.once('ready', () => {
+client.once('ready', async () => {
     console.log(`Eingeloggt als ${client.user.tag}`);
     console.log('Bot is ready!');
+    client.user.setActivity("Bot By SonnenPingu")
+    postSupportEmbed(); 
+ 
     updateServerStatus();
-    checkAndActivateGiveaways(); // Prüfe und aktiviere Gewinnspiele beim Start
-    client.user.setActivity('Minecraft', { type: 'PLAYING' });
-    // Aktualisiere alle 10 Minuten
     setInterval(updateServerStatus, 600000);
 });
 
-client.on('messageCreate', (message) => {
-    // Überprüfe, ob der Bot Zugriff auf den Server hat
-    if (!message.guild || !message.guild.available) {
+
+async function postSupportEmbed() {
+    const channelId = 'YourSUPPORTChannelID';
+    const channel = client.channels.cache.get(channelId);
+
+    if (!channel) {
+        console.error('The channel was not found.');
         return;
     }
 
-    // Überprüfe, ob eine Nachricht im richtigen Format geschrieben wurde
-    const regex = /\/channels\/(\d+)\/(\d+)\/(\d+)/;
-    const match = message.content.match(regex);
+ 
+    const messages = await channel.messages.fetch({ limit: 1 });
+    if (messages && messages.size > 0) {
+        console.log('A message has already been found in the channel. The support message will not be sent again.');
+        return;
+    }
 
-    if (match) {
-        const guildId = match[1];
-        const channelId = match[2];
-        const messageId = match[3];
 
-        // Versuche, auf den Server, den Kanal und die Nachricht zuzugreifen
-        const guild = client.guilds.cache.get(guildId);
-        const channel = guild.channels.cache.get(channelId);
+    await channel.send('YOUR SUPPORT TEXT');
+  
+    const supportTicketEmbed = new EmbedBuilder()
+        .setTitle('Ticket')
+        .setDescription('Click on the button to create a Mystic ticket.')
+        .setColor('#007bff');
 
-        if (channel) {
-            channel.messages.fetch(messageId)
-                .then((fetchedMessage) => {
-                    // Erstelle ein Embed mit den Informationen der Originalnachricht
-                    const embed = new MessageEmbed()
-                        .setAuthor(`${fetchedMessage.author.tag}`, fetchedMessage.author.displayAvatarURL())
-                        .setDescription(`${fetchedMessage.content}`)
-                        .setColor('#0099ff');
+    
+    const supportTicketButton = new ButtonBuilder()
+        .setLabel('Ticket') 
+        .setCustomId('support') 
+        .setStyle('Primary'); 
 
-                    // Sende das Embed in den aktuellen Kanal
-                    message.channel.send({ embeds: [embed] })
-                        .then(() => {
-                            // Lösche die Nachricht, auf die der Bot reagiert hat
-                            message.delete();
-                        })
-                        .catch((error) => {
-                            console.error(`Fehler beim Senden des Embeds: ${error.message}`);
-                        });
-                })
-                .catch((error) => {
-                    console.error(`Fehler beim Abrufen der Nachricht: ${error.message}`);
-                });
-        }
+    await channel.send({
+        embeds: [supportTicketEmbed],
+        components: [new ActionRowBuilder().addComponents(supportTicketButton)],
+    });
+}
+
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isButton()) return;
+
+    if (interaction.customId === 'support') {
+
+        const supportModal = new ModalBuilder()
+            .setCustomId('support-modal')
+            .setTitle('Ticket createn')
+        const Anliegen = new TextInputBuilder()
+            .setCustomId('Your request')
+            .setLabel("Whats your request?")
+            .setStyle(TextInputStyle.Short);
+        const firstActionRow = new ActionRowBuilder().addComponents(Anliegen);
+        supportModal.addComponents(firstActionRow);
+        await interaction.showModal(supportModal); 
     }
 });
+client.on(Events.InteractionCreate, async interaction => {
+    if (!interaction.isModalSubmit()) return;
 
+    if (interaction.customId === 'support-modal') {
+        const userId = interaction.user.id;
+
+        
+        if (activeTickets.has(userId)) {
+            await interaction.reply({ content: 'You already have an open ticket. Please wait for an answer before creating a new ticket.', ephemeral: true });
+            return;
+        }
+        const Yourrequest = interaction.fields.getTextInputValue('Your request');
+      
+        const existingTicketChannels = interaction.guild.channels.cache.filter(channel => channel.name.startsWith('ticket'));
+        let ticketNumber = existingTicketChannels.size + 1;
+        let channelName;
+        do {
+            channelName = `Ticket-${ticketNumber}`;
+            ticketNumber++;
+        } while (existingTicketChannels.some(channel => channel.name === channelName));
+        const supportChannel = await interaction.guild.channels.create({
+            name: channelName,
+            type: '0',
+            parent: 'Replace WITH your category',
+            topic: `Ticket create: ${interaction.user.username}`,
+            permissionOverwrites: [
+                {
+                    id: interaction.guild.id,
+                    deny: [PermissionsBitField.Flags.ViewChannel],
+                },
+                {
+                    id: interaction.user.id,
+                    allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.SendMessages],
+                },
+                {
+                    id: supporterRoleId,
+                    allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.SendMessages],
+                },
+            ],
+        });
+       
+        console.log(`Channel-Name: ${channelName}`);
+     
+        const embed = new EmbedBuilder();
+        embed.setTitle(`:construction_worker: Discord-Support-Ticket `, {
+            fontSize: 30,
+            fontWeight: 'bold',
+        });
+        embed.setDescription(`Your request: ${Yourrequest}`, {
+            fontSize: 25,
+            fontWeight: 'bold',
+        });
+        embed.setColor('#98FB98');
+       
+        const actionRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('status_gelöst')
+                .setLabel('Ticket closed')
+                .setStyle('Success'),
+        );
+       
+        const sentMessage = await supportChannel.send({ embeds: [embed], components: [actionRow] });
+      
+        const embedId = sentMessage.id;
+        console.log(`ID des gesendeten Embeds: ${embedId}`);
+        activeTickets.set(userId, embedId, true);
+       
+        await interaction.reply({ content: `Your ticket has been created. A supporter will take care of your request shortly.`, ephemeral: true })
+    }
+});
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isButton()) return;
+    if (interaction.customId === 'status_gelöst') {
+       const member = interaction.member;
+        if (!member.roles.cache.has(supporterRoleId)) {
+            await interaction.reply({ content: "You do not have the authorization to close the ticket.", ephemeral: true });
+            return;
+        }
+        const channel = interaction.channel;
+        console.log('Lösche Kanal:', channel.name);
+        await deleteTicket(channel, interaction); // 
+    }
+});
+async function deleteTicket(channel, interaction, embedId) { 
+    await channel.delete();
+
+    activeTickets.delete(interaction.user.id, embedId);
+}
+client.on('guildMemberAdd', async (member) => {
+    console.log('Join:', member.user.tag);
+    const channelID = 'welcome'; //  Replace with your welcome channel ID!
+    const channel = member.guild.channels.cache.get(channelID);
+    if (!channel) {
+        console.error('Welcomekanal nicht gefunden.');
+        return;
+    }
+    const welcomeEmbed = createWelcomeEmbed(member.user.tag, member, member.guild.iconURL());
+    channel.send({ embeds: [welcomeEmbed] });
+});
 client.on('guildMemberRemove', (member) => {
-    const channel = member.guild.channels.cache.get('1081182553681178734');
-
+    console.log('Leave:', member.user.tag);
+    const channelID = 'goodbye'; // Replace with your goodbye channel ID!
+    const channel = member.guild.channels.cache.get(channelID);
     if (!channel) {
         console.error('Abschiedskanal nicht gefunden.');
         return;
     }
-
-    const goodbyeEmbed = createGoodbyeEmbed(member.user.tag, member);
+    const goodbyeEmbed = createGoodbyeEmbed(member.user.tag, member, member.guild.iconURL());
     channel.send({ embeds: [goodbyeEmbed] });
 });
 
+client.on('interactionCreate', async (interaction) => {
+    if (interaction.isButton() && interaction.customId === 'teilnahme-button') {
+        const giveawayData = activeGiveaways.get(interaction.message.id);
+        const member = await interaction.guild.members.fetch(interaction.user.id);
 
-client.on('guildMemberAdd', async (member) => {
-  const channel = member.guild.channels.cache.get('1081182553681178734');
-
-  if (!channel) {
-    console.error('Willkommenskanal nicht gefunden.');
-    return;
-  }
-
-  const welcomeEmbed = createWelcomeEmbed(member.user.tag, member);
-  channel.send({ embeds: [welcomeEmbed] });
-});
-
-const excludedRoles = ['roleid', 'roleid1']; // Füge die IDs der ausgeschlossenen Rollen hinzu
-
-client.on('messageReactionAdd', async (reaction, user) => {
-    console.log('messageReactionAdd event received');
-    if (user.bot) return;
-
-    const giveawayData = activeGiveaways.get(reaction.message.id);
-
-    if (giveawayData) {
-        const member = reaction.message.guild.members.cache.get(user.id);
-        const isExcluded = excludedRoles.some(roleId => member.roles.cache.has(roleId));
-
-        if (isExcluded && !giveawayData.allowExcludedRoles) {
-            try {
-                await reaction.users.remove(user);
-            } catch (error) {
-                console.error('Fehler beim Entfernen der Reaktion:', error);
-            }
-        } else if (!giveawayData.participants.includes(user.id)) {
-            giveawayData.participants.push(user.id);
-
-            if (giveawayData.participants.length > 0) {
-                giveawayData.reaction = reaction;
-
-                // Hier wird der Text hinzugefügt
-                const username = member.displayName; // oder member.user.username
-                const responseText = `${username}, du nimmst am Gewinnspiel für "${giveawayData.prize}" teil!`;
-
-                giveawayData.channel.send({ content: responseText, ephemeral: true });
-
-                console.log(`Benutzer mit ID ${user.id} wurde zur Liste der Teilnehmer hinzugefügt.`);
+        if (!giveawayData.allowExcludedRoles) {
+            const memberRoles = member.roles.cache.map(role => role.id);
+            const hasExcludedRole = excludedRoles.some(role => memberRoles.includes(role));
+            if (hasExcludedRole) {
+                await interaction.reply({ content: 'Unfortunately, you are not allowed to take part in this competition.', ephemeral: true });
+                return;
             }
         }
-    }
-});
-
-// Überprüfe, ob das Gewinnspiel Teilnehmer hat und sende eine Nachricht entsprechend
-
-client.on('messageCreate', (message) => {
-
-    if (message.author.bot) return;
-
-    if (message.content.startsWith('!check_participants')) {
-
-        const giveawayData = activeGiveaways.get(message.id);
-
-        if (giveawayData && giveawayData.participants.length > 0) {
-
-            message.reply(`Teilnehmer am Gewinnspiel für "${giveawayData.prize}": ${giveawayData.participants.join(', ')}`);
-
+        if (!giveawayData.participants.includes(interaction.user.id)) {
+            giveawayData.participants.push(interaction.user.id);
+            console.log(`User with ID ${interaction.user.id} has been added to the list of participants`);
+   
+            await saveGiveawaysToJson();
+            const username = member.displayName;
+            const responseText = `${username}, you are now taking part in the competition for "${giveawayData.prize}"!`;
+            await interaction.reply({ content: responseText, ephemeral: true });
         } else {
-
-            message.reply('Keiner hat am Gewinnspiel teilgenommen.');
-
-        }
-
-    }
-
-});
-
-client.on('messageCreate', message => {
-  if (message.content.startsWith('!spendeninfo') && message.channel.id === targetChannelId1) {
-    const donationInfoEmbed = new MessageEmbed()
-      .setTitle('THANK YOU for using my bot ')
-      .addFields(
-        { name: 'Amount', value: 'Adapt to your circumstances here' }
-      )
-      .setColor('#0099ff') // Hier kannst du die gewünschte Farbe setzen
-      .setFooter({ text:'Thank you for your support\n The xxy team'});
-
-    message.channel.send({ embeds: [donationInfoEmbed] });
-  }
-});
-
-client.on('messageReactionRemove', async (reaction, user) => {
-    console.log('messageReactionRemove event received');
-    if (user.bot) return;
-
-    const giveawayData = activeGiveaways.get(reaction.message.id);
-
-    if (giveawayData) {
-        const index = giveawayData.participants.indexOf(user.id);
-        if (index !== -1) {
-            giveawayData.participants.splice(index, 1);
-            console.log(`User with ID ${user.id} has been removed from the list of participants.`);
+            await interaction.reply({ content: `You are already taking part in the competition for "${giveawayData.prize}" `, ephemeral: true });
         }
     }
 });
+let poll;
+async function handleUmfrage(message) {
 
+    const args = message.content.slice("!umfrage".length).trim().split(" ");
+    const question = args.join(" ");
+    const timeInput = args.pop();
+    const roleId1 = '1093589980720410655'; // Replace this with the ID of the first role
+    const roleId2 = '917796323921637446'; // Replace this with the ID of the second role
+    let votesYes = 0;
+    let votesAbstention = 0;
+    let votesNo = 0;
+    const lastSelectedOptions = new Map();
+    if (question && timeInput) {
+        const timeInSeconds = parseTimeInput(timeInput);
+        if (!isNaN(timeInSeconds)) {
+    
+            message.channel.send(`A poll: "${question}" has been started! It takes "${timeInput}".<@&${roleId1}> <@&${roleId2}>`);
+            const actionRow = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder().setLabel('yes').setStyle('Primary').setCustomId('Yes'),
+                    new ButtonBuilder().setLabel('Abstention').setStyle('Secondary').setCustomId('Abstention'),
+                    new ButtonBuilder().setLabel('No').setStyle('Secondary').setCustomId('No'),
+                );
+            const poll = new EmbedBuilder()
+                .setTitle("Poll")
+                .setDescription(question)
+                .addFields([
+                    { name: "Yes", value: `${votesYes} Stimmen` },
+                    { name: "Abstention", value: `${votesAbstention} Stimmen` },
+                    { name: "No", value: `${votesNo} Stimmen` },
+                ]);
+            
+            const sentMsg = await message.channel.send({ embeds: [poll], components: [actionRow] });
+            message.delete().catch(error => console.error('Error when deleting the command:', error));
+            setTimeout(() => endUmfrage(sentMsg), timeInSeconds * 1000);
+            const collector = message.channel.createMessageComponentCollector({
+                filter: (interaction) => interaction.isButton(),
+                time: timeInSeconds * 1000,
+            });
+            collector.on('collect', async (interaction) => {
+    
+                switch (interaction.customId) {
+                    case 'Yes':
+                        updateVote(interaction, 'Yes');
+                        break;
+                    case 'Enthaltung':
+                        updateVote(interaction, 'Abstention');
+                        break;
+                    case 'Nein':
+                        updateVote(interaction, 'No');
+                        break;
+                }
+            });
+
+            function updateVote(interaction, option) {
+                const userId = interaction.user.id;
+                const lastOption = lastSelectedOptions.get(userId);
+                if (lastOption && lastOption !== option) {
+                    switch (lastOption) {
+                        case 'Yes':
+                            votesyes--;
+                            break;
+                        case 'Abstention':
+                            votesAbstention--;
+                            break;
+                        case 'No':
+                            votesNo--;
+                            break;
+                    }
+                }
+                switch (option) {
+                    case 'Yes':
+                        votesYes++;
+                        break;
+                    case 'Abstention':
+                        votesAbstention++;
+                        break;
+                    case 'No':
+                        votesno++;
+                        break;
+                }
+                lastSelectedOptions.set(userId, option);
+                interaction.message.edit({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setTitle("Poll")
+                            .setDescription(question)
+                            .addFields([
+                                { name: "Yes", value: `${voteYes} Stimmen` },
+                                { name: "Abstention", value: `${votesAbstention} Stimmen` },
+                                { name: "No", value: `${votesNo} Stimmen` },
+                            ]),
+                    ],
+                });
+          
+                interaction.reply({
+                    content: `You voted for the option "${option}"`,
+                    ephemeral: true // 
+                });
+            }
+            collector.on('end', () => {
+     
+                console.log('The survey is closed.');
+            });
+        } else {
+            message.channel.send("The specified time is invalid. Please enter the time in seconds, minutes, hours or days, e.g. `!survey Should the bot be activated? 60s`");
+        }
+    }
+}
+function parseTimeInput(input) {
+    const timeRegex = /^(\d+)([smhd])$/;
+    const match = input.match(timeRegex);
+    if (match) {
+        const value = parseInt(match[1]);
+        const unit = match[2];
+        switch (unit) {
+            case 's':
+                return value;
+            case 'm':
+                return value * 60;
+            case 'h':
+                return value * 60 * 60;
+            case 'd':
+                return value * 60 * 60 * 24;
+            default:
+                return NaN;
+        }
+    }
+    return NaN;
+}
+function endUmfrage(sentMessage) {
+    const roleId1 = '1093589980720410655';  // Replace this with the ID of the first role
+    const roleId2 = '917796323921637446'; // Replace this with the ID of the second role
+    const role1 = sentMessage.guild.roles.cache.get(roleId1);
+    const role2 = sentMessage.guild.roles.cache.get(roleId2);
+    if (role1 && role2) {
+        sentMessage.channel.send(`The survey is closed. ${role1} ${role2}`);
+    } else {
+        sentMessage.channel.send("DThe survey is closed!");
+    }
+    const embed = sentMessage.embeds[0];
+    const fields = embed.fields;
+    const results = {};
+    for (const field of fields) {
+        const option = field.name;
+        const votes = parseInt(field.value);
+        results[option] = votes;
+    }
+    let winnerVotes = 0;
+    for (const [option, votes] of Object.entries(results)) {
+        if (votes > winnerVotes) {
+            winner = option;
+            winnerVotes = votes;
+        }
+    }
+
+    const resultsEmbed = new EmbedBuilder()
+        .setTitle("The survey is closed.")
+        .setDescription(`The Poll: "${embed.description}" is closed.\n\n`)
+        .addFields(
+            { name: "Stimmen für Yes", value: results['Yes'].toString(), inline: true },
+            { name: "Stimmen für Abstention", value: results['Abstention'].toString(), inline: true },
+            { name: "Stimmen für No", value: results['No'].toString(), inline: true }
+        );
+
+    sentMessage.channel.send({ embeds: [resultsEmbed] });
+}
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
-    if (message.content.startsWith('!start_giveaway')) {
-        console.log('!start_giveaway-Befehl erkannt');
+    if (!message.content.startsWith('!')) return; // 
+    if (message.content.startsWith("!poll")) {
+        handleUmfrage(message);
+    }
+    if (message.content.startsWith('!Donation')) {
+        const messageText = '**Your Text';
+        const donationInfoEmbed = new EmbedBuilder()
+            .setTitle('YourText ')
+            .addFields(
+                { name: '', value: '' }, // Here you can enter your data accordingly
+                { name: '1 Dollar', value: 'Buy me a Coffee' },
+                { name: '', value: '' }
+              
+            )
+            .setColor('#0099ff') //
+            .setFooter({ text: 'Thanks for your Donation!' });
+        await message.delete();
+        await message.channel.send(messageText);
+        await message.channel.send({ embeds: [donationInfoEmbed] });
+    }
+    if (message.content.startsWith('!Rule')) {
+        const messageText = '**DiscordRules**';
+        const dcembed = new EmbedBuilder()
+            .setTitle('**RULES**')
+            .setColor('#0000FF')
+            .addFields(
+                { name: '', value: '' }, // Here you can enter your data accordingly
+                { name: '', value: '' } // Here you can enter your data accordingly
+            )
+            .setFooter({ text: 'YourTEXT ' });
+
+        await message.delete();
+        await message.channel.send(messageText);
+        await message.channel.send({ embeds: [dcembed] });
+    }
+    if (message.content.startsWith('!Rules')) {
+        const serverEmbed = new EmbedBuilder()
+            .setTitle('**ServerRules**')
+            .setColor('#DE350B')
+            .setThumbnail('YourThumbnail')
+            .addFields(
+                { name: '', value: '' }, // Here you can enter your data accordingly
+        { name: '', value: '' }, // Here you can enter your data accordingly
+                { name: '', value: '' } // Here you can enter your data accordingly
+            )
+            .setFooter({ text: 'Have Fun and good Luck!' });
+        const geEmbed = new EmbedBuilder()
+            .setTitle('**Your lottery rules**')
+            .setColor('#000000')
+            .addFields(
+                { name: '', value: '' }, // Here you can enter your data accordingly
+                { name: '', value: '' }, // Here you can enter your data accordingly
+                { name: '', value: '' } // Here you can enter your data accordingly
+            )
+            .setFooter({ text: 'YourText!' });
+        const crEmbed = new EmbedBuilder()
+            .setTitle('**CreativeRegeln**')
+            .addFields(
+                { name: '', value: '' }, // Here you can enter your data accordingly
+                { name: '', value: '' }, // Here you can enter your data accordingly
+                { name: '', value: '' } // Here you can enter your data accordingly
+            )
+        await message.delete();
+        await message.channel.send({ embeds: [serverEmbed, crEmbed, geEmbed] });
+    }
+
+    if (message.content.startsWith('!Commands')) {
+        const dcbeEmbed = new EmbedBuilder()
+            .setTitle('What commands are available to me?')
+            .addFields(
+                { name: '', value: '' }, // Here you can enter your data accordingly
+                { name: '', value: '' }, // Here you can enter your data accordingly
+                { name: '', value: '' } // Here you can enter your data accordingly
+            )
+            .setColor('#0099ff')  
+        await message.delete();
+        await message.channel.send({ embeds: [dcbeEmbed] });
+    }
+
+    else if (message.content.toLowerCase() === '!play') {
+        const playEmbed = new EmbedBuilder()
+            .setTitle('Connection instructions')
+            .setDescription('')
+            .addFields(
+                { name: '', value: '' }, // Here you can enter your data accordingly
+                { name: '', value: '' }, // Here you can enter your data accordingly
+                { name: '', value: '' } // Here you can enter your data accordingly
+            )
+         .setImage('Your IMAGE')
+            .setFooter({ text: 'Thank you very much and have fun on the server!' });
+       
+        await message.delete();
+        await message.channel.send({ embeds: [playEmbed] });
+    }
+    else if (message.content.toLowerCase() === '!vote') {
+        const embed = new EmbedBuilder()
+            .setTitle('Vote for the server')
+            .setDescription('Here are the links to vote:')
+            .addFields(
+                { name: '', value: '' }, // Here you can enter your data accordingly
+                { name: '', value: '' }, // Here you can enter your data accordingly
+                { name: '', value: '' } // Here you can enter your data accordingly
+            )
+            .setFooter({ text: 'YOURTEXT' });
+        await message.delete();
+        await message.channel.send({ embeds: [embed] });
+    }
+    if (message.content.startsWith("!update")) {
+        updateServerStatus();
+    }
+    // Please note that this function can be exploited if in the wrong hands!
+    if (!message.guild) return; // 
+    if (message.author.bot) return; // 
+    const args = message.content.slice('!').trim().split(/ +/);
+    const command = args.shift().toLowerCase();
+    const allowedRoleID = '917413024879509515'; //Replace the ID 
+    if (command === '!dm') {
+        if (!message.member.roles.cache.has(allowedRoleID)) {
+            return message.reply('You are not authorized to use this command..');
+        }
+        const user = message.mentions.users.first();
+        if (!user) return message.reply('Please mention a user to whom you would like to send a DM.');
+        const text = args.slice(1).join(' ');
+        if (!text) return message.reply('Please enter the text for the DM.');
         try {
-            let timeValue
-            let numWinners
-            let timeUnit;
-            if (message.member.permissions.has('ADMINISTRATOR') || message.author.id === 'Here your userid in') {
+            await user.send(text);
+            message.reply(`The DM was successfully sent to ${user.tag}.`);
+        } catch (error) {
+            console.error('An error occurred while sending the DM', error);
+            message.reply('An error occurred while sending the DM.');
+        }
+    }
+    if (message.content.startsWith('!start_giveaway')) {
+        console.log('!giveaway-Befehl');
+        try {
+            if (message.member.permissions.has('ADMINISTRATOR') || message.author.id === '682094286623211571') { //Replace the ID!
                 const args = message.content.split(' ');
-                if (args.length < 4) {
-                    message.reply({ content: 'Invalid use! Use: !start_giveaway <Zeitangabe> <Preis> [excludedRoles] <Gewinner>', ephemeral: true });
+                if (args.length < 6) {
+                    message.reply({ content: 'Invalid use! Use: !start_giveaway <time> <prize> [excludedRoles] <winner>', ephemeral: true });
                     return;
                 }
-                const timeArg = args.slice(1, -3).join(' '); // Index aktualisiert, um die letzten 3 Argumente auszuschließen
-                const prize = args[args.length - 3]; // Index für den Preis aktualisiert
-                const excludedRolesOption = args[args.length - 2]; // Index für ausgeschlossene Rollen aktualisiert
-                const numWinnersArg = args[args.length - 1]; // Das letzte Argument ist die Anzahl der Gewinner
-
-
-                const timeUnitMatches = timeArg.match(/(\d+)\s*(\S+)/);
-                if (!timeUnitMatches) {
-                    message.reply({ content: 'Ungültige Zeitangabe!', ephemeral: true });
+                const timeArg = args.slice(1).join(' '); // 
+                const prize = args.slice(3, -2).join(' ');
+                const numWinnersArg = args[args.length - 1]; // A
+                const excludedRolesOption = args[args.length - 2]; // 
+                const timeUnitMatch = timeArg.match(/(\d+)\s*(\w+)/);
+                if (!timeUnitMatch) {
+                    message.reply({ content: 'Invalid time', ephemeral: true });
                     return;
                 }
-
-                // Parsen Sie die Zeitangabe
-                timeValue = parseFloat(timeUnitMatches[1]);
-                timeUnit = timeUnitMatches[2].toLowerCase();
-
-                // Überprüfen Sie, ob die Parsen erfolgreich war
+                let timeValue = parseInt(timeUnitMatch[1]); // 
+                let timeUnit = timeUnitMatch[2].toLowerCase(); // 
+                timeValue = parseInt(timeUnitMatch[1]);
+                timeUnit = timeUnitMatch[2].toLowerCase();
+        
                 if (isNaN(timeValue) || timeValue <= 0) {
-                    message.reply({ content: 'Ungültige Zeitangabe. Sie muss eine positive Zahl sein.', ephemeral: true });
+                    message.reply({ content: 'Invalid time specification. It must be a positive number', ephemeral: true });
                     return;
                 }
-
-                // Überprüfen Sie, ob die Zeitangabe gültig ist
-                const validTimeUnits = ['sekunde', 'sekunden', 'minute', 'minuten', 'stunde', 'stunden', 'tag', 'tage'];
+      
+                const validTimeUnits = ['second', 'seconds', 'minute', 'minutes', 'hour', 'hours', 'day', 'days'];
                 if (!validTimeUnits.includes(timeUnit)) {
-                    message.reply({ content: 'Ungültige Zeiteinheit!', ephemeral: true });
+                    message.reply({ content: 'Invalid time specification!', ephemeral: true });
                     return;
                 }
-
                 // Parsen Sie die Anzahl der Gewinner
                 numWinners = parseInt(numWinnersArg);
                 if (isNaN(numWinners) || numWinners <= 0) {
-                    message.reply({ content: 'Ungültige Anzahl der Gewinner. Sie muss eine positive ganze Zahl sein.', ephemeral: true });
+                    message.reply({ content: 'Invalid number of winners. It must be a positive integer', ephemeral: true });
                     return;
                 }
-
                 const timeUnits = {
-                    sekunde: 1,
-                    sekunden: 1,
+                    second: 1,
+                    seconds: 1,
                     minute: 60,
-                    minuten: 60,
-                    stunde: 3600,
-                    stunden: 3600,
-                    tag: 86400,
-                    tage: 86400
+                    minutes: 60,
+                    hour: 3600,
+                    hours: 3600,
+                    day: 86400,
+                    days: 86400
                 };
-
                 const timeInSeconds = timeValue * timeUnits[timeUnit];
-
                 const targetChannel = client.channels.cache.get(targetChannelId);
-
                 if (!targetChannel) {
-                    message.reply({ content: 'Zielkanal nicht gefunden.', ephemeral: true });
+                    message.reply({ content: 'Target channel not found.', ephemeral: true });
                     return;
                 }
-
-                // Überprüfe, ob ausgeschlossene Rollen an diesem Gewinnspiel teilnehmen dürfen
+               
                 const allowExcludedRoles = excludedRolesOption.toLowerCase() === 'true';
-
-                const roleMentions = ['Customize the roles you want here', 'role'];
+                const roleMentions = ['1093589980720410655', '917796323921637446']; //REplace the IDS
                 if (allowExcludedRoles) {
                     roleMentions.push(...excludedRoles);
                 }
-
                 const roleMentionsString = roleMentions.map(roleId => `<@&${roleId}>`).join(' ');
-
-                // Funktion, um den Text im Footer abhängig von allowExcludedRoles zu erhalten
+                const announcementText = `Dear ${roleMentionsString}, a new competition has been launched!`;
+           
+                targetChannel.send(announcementText);
                 function getFooterText(allowExcludedRoles) {
                     if (allowExcludedRoles) {
-                        return 'This competition is organised by xxy.\nThere is no entitlement to a payout of the prize.';
+                        return 'This competition is organized by Mystic Celduin.\nThere is no entitlement to a prize payout';
                     } else {
-                        return 'This competition is organised by xxy.\nThere is no entitlement to a payout of prizes.\nThe team is excluded from competitions!';
+                        return 'This competition is organized by Mystic Celduin.\nThere is no entitlement to a prize payout.\nThe team is excluded from competitions!';
                     }
                 }
-
-              const embed = new MessageEmbed()
-    .setTitle('🎉 Competition 🎉')
-    .setColor('#FFD700')
-    .addFields(
-        { name: 'Rollen', value: roleMentionsString },
-        { name: 'Aktion', value: 'Click on the reaction!' },
-        { name: 'Preis', value: `"${prize}"` },
-        { name: 'Endet in', value: `${timeValue} ${timeUnit}!` },
-        { name: 'Number of winners', value: numWinners.toString() }
-    )
-    .setFooter(getFooterText(allowExcludedRoles));
-
-
-
-                const giveawayMessage = await targetChannel.send({ embeds: [embed] });
-                giveawayMessage.react('🎉');
-
-
+                const button = new ButtonBuilder()
+                    .setLabel('Participate!')
+                    .setStyle('Primary')
+                    .setCustomId('Participate-button');
+                // Erstellen der ActionRow
+                const row = new ActionRowBuilder()
+                    .addComponents(button);
+                const embed = new EmbedBuilder()
+                    .setTitle('🎉 Competition 🎉')
+                    .setColor('#FFD700')
+                    .addFields(
+                        { name: 'Action', value: 'Click on the reaction!' },
+             { name: 'Price', value: `"${prize}"` },
+                        { name: 'Ends in', value: `${timeValue} ${timeUnit}!` },
+                        { name: 'Number of winners', value: numWinners.toString() }
+                    )
+                const footerText = getFooterText(allowExcludedRoles);
+                embed.setFooter({ text: footerText });
+    
+                const giveawayMessage = await targetChannel.send({ embeds: [embed], components: [row] });
                 const giveawayData = {
                     channel: targetChannel,
                     prize: prize,
                     participants: [],
                     allowExcludedRoles: allowExcludedRoles,
                 };
-
                 activeGiveaways.set(giveawayMessage.id, giveawayData);
-
-                // Aktualisiere die giveaways.json-Datei
+               // Aktualisiere die giveaways.json-Datei
                 saveGiveawaysToJson();
-
                 setTimeout(() => endGiveaway(giveawayMessage.id, numWinners), timeInSeconds * 1000);
             } else {
-                message.reply({ content: 'Du hast keine Berechtigung, um ein Gewinnspiel zu starten!', ephemeral: true });
+                message.reply({ content: 'You do not have authorization to start a competition!', ephemeral: true });
             }
         } catch (error) {
-            console.error('Fehler beim Starten des Gewinnspiels:', error);
+            console.error('Error when starting the competition', error);
         }
     }
-
     if (message.content.startsWith('!end_giveaway')) {
-        if (message.member.permissions.has('ADMINISTRATOR') || message.author.id === 'Your id') {
+        if (message.member.permissions.has('ADMINISTRATOR') || message.author.id === '682094286623211571') { // Replace the ID
             const giveawayData = Array.from(activeGiveaways.values()).find((data) => {
                 return data.channel.id === targetChannelId;
             });
-
             if (giveawayData) {
-                endGiveaway(giveawayData.channel.id);
-                message.reply({ content: 'Das Gewinnspiel wurde vorzeitig beendet!', ephemeral: true });
-            } else {
-                message.reply({ content: 'Keine aktiven Gewinnspiele gefunden!', ephemeral: true });
-            }
-        } else {
-            message.reply({ content: 'Du hast keine Berechtigung, um ein Gewinnspiel zu beenden!', ephemeral: true });
+       
+    endGiveaway(giveawayData.channel.id);
+    message.reply({ content: 'The giveaway has ended early!', ephemeral: true });
+} else {
+    message.reply({ content: 'No active competitions found!', ephemeral: true });
+}
+    } else {
+        message.reply({
+            content: 'You dont have permission to end a competition!', ephemeral: true });
+    }
+}
+});
+client.on('messageCreate', message => {
+    if (!message.author.bot && message.channel.type === 1) {
+        console.log(`DM ${message.author.tag} Form: ${message.cleanContent}`);
+        message.author.send('Thank you for the information..');
+         // Notify another user about the DM
+        const otherUser = client.users.cache.get('USER_ID');  // Replace 'USER_ID' with the ID of the user to be notified
+        if (otherUser) {
+            otherUser.send(`A DM was sent from ${message.author.tag} with the content "${message.cleanContent}".`);
         }
     }
-
 });
-
-
 async function saveGiveawaysToJson() {
-   try {
-       // Konvertiere die activeGiveaways-Map in ein Array, bevor du sie in die JSON-Datei schreibst
-       const giveawaysArray = Array.from(activeGiveaways);
+    try {
+        const giveawaysArray = Array.from(activeGiveaways);
+        const jsonData = JSON.stringify(giveawaysArray, null, 2);
 
-// Konvertiere das Array in eine Zeichenfolge
-       const jsonData = JSON.stringify(giveawaysArray, null, 2);
-
-// Speichere die Gewinnspielinformationen in der giveaways.json-Datei
-       fs.writeFileSync('giveaways.json', jsonData, 'utf-8');
-       console.log('Gewinnspielinformationen erfolgreich in giveaways.json gespeichert.');
-   } catch (error) {
-       console.error('Fehler beim Speichern der Gewinnspielinformationen in giveaways.json:', error);
-   }
+        fs.writeFileSync('giveaways.json', jsonData, 'utf-8');
+        console.log('Contest information successfully saved in giveaways.json');
+    } catch (error) {
+        console.error('Error when saving the raffle information in giveaways.json', error);
+    }
 }
-
 function endGiveaway(messageId, numWinners) {
     const giveawayData = activeGiveaways.get(messageId);
-
     if (giveawayData) {
-        console.log('Teilnehmer:', giveawayData.participants); // Debug-Ausgabe
+        console.log('Participants:', giveawayData.participants); // Debug-Ausgabe
+        const channel = giveawayData.channel;
         if (giveawayData.participants.length > 0) {
-            const winners = [];
-            for (let i = 0; i < numWinners; i++) {
-                const winnerId = giveawayData.participants[Math.floor(Math.random() * giveawayData.participants.length)];
-                const winner = giveawayData.channel.guild.members.cache.get(winnerId);
+            const uniqueParticipants = Array.from(new Set(giveawayData.participants)); // 
+            if (uniqueParticipants.length > 0) {
+                const winners = [];
+                for (let i = 0; i < numWinners; i++) {
+                    const winnerId = uniqueParticipants[Math.floor(Math.random() * uniqueParticipants.length)];
+                    const winner = channel.guild.members.cache.get(winnerId);
+                    if (winner) {
+                        winners.push(winner);
 
-                if (winner) {
-                    winners.push(winner);
+                        uniqueParticipants.splice(uniqueParticipants.indexOf(winnerId), 1);
+                    }
                 }
-            }
-
-            if (winners.length > 0) {
-                const winnerNames = winners.map(winner => winner.toString()).join(', ');
-                giveawayData.channel.send(`🎉 Die Gewinner von "${giveawayData.prize}" sind: ${winnerNames}! 🎉`);
+                if (winners.length > 0) {
+                    const winnerNames = winners.map(winner => winner.toString()).join(', ');
+                    channel.send(` Die Gewinner von "${giveawayData.prize}" sind: ${winnerNames}! `);
+                    // Nachricht entfernen
+                    channel.messages.fetch(messageId)
+                        .then(giveawayMessage => {
+                            if (giveawayMessage) {
+                                giveawayMessage.reactions.removeAll().catch(error => console.error('Error when removing the reactions', error));
+                            } else {
+                                console.error('Active competition message not found.');
+                            }
+                        })
+                        .catch(error => console.error('Error when retrieving the competition message', error));
+                } else {
+                    channel.send(` Nobody has entered the competition for "${giveawayData.prize}" yet. `);
+                    // Nachricht entfernen
+                    channel.messages.fetch(messageId)
+                        .then(giveawayMessage => {
+                            if (giveawayMessage) {
+                                giveawayMessage.reactions.removeAll().catch(error => console.error('Error when removing the reactions:', error));
+                            } else {
+                                console.error('Active competition message not found.');
+                            }
+                        })
+                        .catch(error => console.error('Error retrieving the competition message', error));
+                }
             } else {
-                giveawayData.channel.send(`😔 Niemand hat am Gewinnspiel für "${giveawayData.prize}" teilgenommen. 😔`);
+                console.log("No participants found.");
+                channel.send(` Nobody has entered the competition for "${giveawayData.prize}" yet. `);
+                // Nachricht entfernen
+                channel.messages.fetch(messageId)
+                    .then(giveawayMessage => {
+                        if (giveawayMessage) {
+                            giveawayMessage.reactions.removeAll().catch(error => console.error('Error when removing the reactions', error));
+                        } else {
+                            console.error('Active competition message not found.');
+                        }
+                    })
+                    .catch(error => console.error('Error retrieving the competition message', error));
             }
-        } else {
-            console.log("Keine Teilnehmer gefunden.");
-            giveawayData.channel.send(`😔 Niemand hat am Gewinnspiel für "${giveawayData.prize}" teilgenommen. 😔`);
         }
 
         activeGiveaways.delete(messageId);
     }
 }
-
-
-async function checkAndActivateGiveaways() {
-    const targetChannel = client.channels.cache.get(targetChannelId);
-
-    if (!targetChannel) {
-        console.error(`Zielkanal mit ID ${targetChannelId} nicht gefunden.`);
-        return;
-    }
-
+// Function for the server status
+async function getServerStatus() {
+    const serverAddress = 'xxx.xx.xx.xx:xxxx'; // Replace this with your server IP!
+    const StatusUrl = `https://api.mcsrvstat.us/3/${serverAddress}`;
     try {
-        const botMessages = await targetChannel.messages.fetch({ limit: 100 });
-
-        const activeGiveawayMessages = botMessages.filter(message =>
-            message.author.bot &&
-            message.embeds[0]?.title?.includes('Gewinnspiel') &&
-            message.embeds[0]?.description?.includes('This giveaway is organized by xxy.')
-        );
-
-        // Lese die Gewinnspielinformationen aus der JSON-Datei
-        let savedGiveaways;
+        const response = await axios.get(StatusUrl);
+        const Status = response.data;
+        return Status;
+    } catch (error) {
+        console.error('Error when querying the Java server status', error);
+        return null;
+    }
+}
+ 
+        let StatusMessage = null;
+     
+        let savedStatus = {};
         try {
-            const data = fs.readFileSync('giveaways.json');
-            savedGiveaways = JSON.parse(data);
-        } catch (err) {
-            console.error('Fehler beim Lesen der JSON-Datei: ', err);
-            savedGiveaways = [];
+            savedStatus = JSON.parse(fs.readFileSync('Status.json', 'utf8'));
+        } catch (error) {
+            console.error('Fehler beim Laden der gespeicherten Status:', error);
         }
+    async function updateServerStatus() {
+        const commonChannelId = '1178055581953687612'; //Shared channel  Replace the number with your channel ID
+        const commonChannel = client.channels.cache.get(commonChannelId);
+        if (!commonChannel) {
+            console.error('The specified shared channel was not found.');
+            return; // 
+        }
+        const Status = await getServerStatus();
+    
+      
+        StatusMessage = await sendOrUpdateEmbed(commonChannel, StatusEmbed('Status', Statusstatus), savedStatus.StatusMessage);
 
-        // Aktiviere die Gewinnspiele aus der JSON-Datei, die noch nicht abgelaufen sind
-        savedGiveaways.forEach(savedGiveaway => {
-            const now = Date.now();
-            if (now < savedGiveaway.endTime) {
-                // Überprüfe, ob das Gewinnspiel bereits aktiv ist, um doppelte Aktivierungen zu vermeiden
-                if (!activeGiveawayMessages.some(message => message.id === savedGiveaway.messageId)) {
-                    const decodedPrize = Buffer.from(savedGiveaway.prize, 'base64').toString('utf-8');
-                    const timeRemaining = savedGiveaway.endTime - now;
-
-                    // Erstelle eine neue Embed-Nachricht mit den gespeicherten Informationen
-                    const embed = new MessageEmbed()
-                        .setTitle('🎉 Gewinnspiel 🎉')
-                        .setDescription(`${savedGiveaway.roleMentions}\n??\nPrice: ${decodedPrize}\nEndet in ${formatTime(timeRemaining / 1000)}!`)
-                        .setColor('#FFD700')
-                        .setFooter('Dieses Gewinnspiel wird von Mystic Celduin veranstaltet.\nEs besteht kein Anspruch auf Gewinnauszahlung.\nDas Team und Admins sind von Gewinnspielen ausgenommen!');
-
-                    // Überprüfe, ob das Gewinnspiel bereits aktiv ist
-                    const existingGiveaway = activeGiveaways.get(savedGiveaway.messageId);
-
-                    if (existingGiveaway) {
-                        // Aktualisiere die vorhandene Nachricht
-                        targetChannel.messages.fetch(savedGiveaway.messageId)
-                            .then((message) => {
-                                message.edit({ embeds: [embed] });
-                            })
-                            .catch(console.error);
-                    } else {
-                        // Sende die Nachricht und füge die Reaktion hinzu
-                        targetChannel.send({ embeds: [embed] }).then(giveawayMessage => {
-                            giveawayMessage.react('🎉');
-
-                            // Speichere die aktivierte Nachricht in der Map
-                            activeGiveaways.set(giveawayMessage.id, {
-                                channel: targetChannel,
-                                prize: savedGiveaway.prize,
-                                participants: [],
-                                endTime: savedGiveaway.endTime,
-                            });
-                        });
-                    }
-                }
+        
+        savedStatus.StatusMessage = StatusMessage ? StatusMessage.id : null;
+ 
+        saveStatusToFile(savedStatus);
+    }
+    async function sendOrUpdateEmbed(channel, embed, messageId) {
+        try {
+            if (messageId) {
+            
+                const previousMessage = await channel.messages.fetch(messageId);
+                await previousMessage.edit({ embeds: [embed] });
+                return previousMessage;
+            } else {
+     
+                const newMessage = await channel.send({ embeds: [embed] });
+                return newMessage;
             }
-        });
-    } catch (error) {
-        console.error('Fehler beim Prüfen und Aktivieren von Gewinnspielen: ', error);
-    }
-}
-
-let javaStatusMessage = null;
-let bedrockStatusMessage = null;
-
-async function updateServerStatus() {
-    const commonChannelId = 'Add the channel id where you want the status to be posted'; // Gemeinsamer Channel für beide Embeds
-    const commonChannel = client.channels.cache.get(commonChannelId);
-
-    if (!commonChannel) {
-        console.error('Der angegebene gemeinsame Channel wurde nicht gefunden.');
-        return; // Beende die Funktion, wenn der Channel nicht gefunden wurde
+        } catch (error) {
+            console.error('Fehler beim Senden oder Aktualisieren des Embeds:', error);
+            return null;
+        }
     }
 
-    const bedrockStatus = await getBedrockServerStatus();
-    const javaStatus = await getJavaServerStatus();
-
-    // Erstelle separate Embeds für Bedrock und Java
-    const bedrockEmbed = createEmbed('Customize the name here Bedrock', bedrockStatus);
-    const javaEmbed = createEmbed('Customize your name  Java', javaStatus);
-
-    // Bedrock Embed aktualisieren oder senden
-    if (!bedrockStatusMessage) {
-        commonChannel.send({ embeds: [bedrockEmbed] })
-            .then((message) => {
-                bedrockStatusMessage = message;
-            })
-            .catch((error) => {
-                console.error('Fehler beim Senden der Bedrock-Nachricht:', error);
-            });
-    } else {
-        bedrockStatusMessage.edit({ embeds: [bedrockEmbed] })
-            .catch((error) => {
-                console.error('Fehler beim Aktualisieren der Bedrock-Nachricht:', error);
-            });
+    function saveStatusToFile(status) {
+        fs.writeFileSync('Status.json', JSON.stringify(status, null, 2), 'utf8');
     }
-
-    // Java Embed aktualisieren oder senden
-    if (!javaStatusMessage) {
-        commonChannel.send({ embeds: [javaEmbed] })
-            .then((message) => {
-                javaStatusMessage = message;
-            })
-            .catch((error) => {
-                console.error('Fehler beim Senden der Java-Nachricht:', error);
-            });
-    } else {
-        javaStatusMessage.edit({ embeds: [javaEmbed] })
-            .catch((error) => {
-                console.error('Fehler beim Aktualisieren der Java-Nachricht:', error);
-            });
-    }
-}
-
-// Funktion für den Bedrock-Serverstatus
-async function getBedrockServerStatus() {
-    const serverAddress = 'Enter the IP address and port here. ';
-    const bedrockStatusUrl = `https://api.mcstatus.io/v2/status/bedrock/${serverAddress}`;
-
-    try {
-        const response = await axios.get(bedrockStatusUrl);
-        const bedrockStatus = response.data;
-        return bedrockStatus;
-    } catch (error) {
-        console.error('Fehler beim Abfragen des Bedrock-Serverstatus:', error);
-        return null;
-    }
-}
-
-// Funktion für den Java-Serverstatus
-async function getJavaServerStatus() {
-    const serverAddress = 'Insert the java address here';
-    const javaStatusUrl = `https://api.mcstatus.io/v2/status/java/${serverAddress}`;
-
-    try {
-        const response = await axios.get(javaStatusUrl);
-        const javaStatus = response.data;
-        return javaStatus;
-    } catch (error) {
-        console.error('Fehler beim Abfragen des Java-Serverstatus:', error);
-        return null;
-    }
-}
-
-
-function createEmbed(title, serverStatus) {
-    const embed = new MessageEmbed()
+function StatusEmbed(title, serverStatus) {
+    const embed = new EmbedBuilder()
         .setTitle(title)
-        .setColor('#00ff00'); // Grüne Farbe für Erfolg
-
+        .setColor(serverStatus.online ? '#FF7F00' : '#FF0000'); 
     if (serverStatus.online) {
         const playersOnline = serverStatus.players.online;
         const maxPlayers = serverStatus.players.max;
-        const version = serverStatus.version?.name || '1.20.4'; // Extrahiere die Version oder verwende 'N/A', wenn nicht verfügbar
-
-        // Direkte Zuweisung für den Servernamen
-        const serverName = 'xyz';
-        const serverAdresse = 'Ip:port';
-
+        const version = serverStatus.version || '1.19-1.20.4'; 
+        const serverName = 'Your ServerName';
+        const serverAdresse = 'Your Login IP'
         embed.addFields(
             { name: 'Server Status', value: 'Online' },
-            { name: 'Spieler', value: `${playersOnline}/${maxPlayers}` },
+            { name: 'Player', value: `${playersOnline}/${maxPlayers}` },
+            { name: 'Serveradresse', value: serverAdresse },
             { name: 'ServerName', value: serverName },
-            { name: 'Serveradresse', value: serverAdresse}, 
-            { name: 'Version', value: version },
-            // Weitere Felder hinzufügen, falls benötigt
+            { name: 'Version', value: version }
+         
         );
         embed.setTimestamp();
     } else {
-        embed.addField('Server Status', 'Offline');
+        embed.addFields({ name: 'Server Status', value: 'Offline' });
     }
-
     return embed;
 }
-
-
-// Funktion für das Willkommens-Embed
 function createWelcomeEmbed(memberTag, member) {
-    const welcomeEmbed = new MessageEmbed()
-        .setTitle('Willkommen auf dem Server!')
-        .setColor('#00ff00') // Grüne Farbe für Erfolg
-        .setDescription(`Willkommen, ${memberTag} Customize it for you `)
+   
+    if (!member || !member.user) {
+        console.error('Invalid member or user object.');
+        return null;  // 
+    }
+    const welcomeEmbed = new EmbedBuilder()
+        .setTitle('Welcome to the server!')
+        .setColor('#00ff00')
         .setThumbnail(member.user.displayAvatarURL())
-        .setFooter('IconUrl'); // Ersetze 'URL_DEINES_GUILDIKONS' durch die URL deines hochgeladenen Bildes
+        .setFooter({ text: 'Your Text' }); 
+    welcomeEmbed.addFields([
+        { name: '', value: '' }, // Here you can enter your data accordingly
+        { name: '', value: '' }, // Here you can enter your data accordingly
+        { name: '', value: '' } // Here you can enter your data accordingly
+    ]);
+welcomeEmbed.setTimestamp();
     return welcomeEmbed;
 }
-
-// Funktion für das Abschieds-Embed
 function createGoodbyeEmbed(memberTag, member) {
-    const goodbyeEmbed = new MessageEmbed()
-        .setTitle('Auf Wiedersehen!')
-        .setColor('#ff0000') // Rote Farbe für Warnung
-        .setDescription(`${memberTag} hat den Server verlassen. Auf Wiedersehen!`)
-        .setThumbnail(member.user.displayAvatarURL())
-        .setFooter('icon_url'); // Ersetze 'URL_DEINES_GUILDIKONS' durch die URL deines hochgeladenen Bildes
+    const goodbyeEmbed = new EmbedBuilder()
+        .setTitle('GoodBye!')
+        .setColor('#ff0000')
+        .setDescription(`Goodbye ${member.displayName}`)
+        .setFooter({ text: 'Your Text' }) // 
+        .addFields([
+            { name: '', value: '' }, // Here you can enter your data accordingly
+            { name: '', value: '' }, // Here you can enter your data accordingly
+            { name: '', value: '' }, // Here you can enter your data accordingly
+        ]);
+    if (member.user && member.displayAvatarURL) {
+        goodbyeEmbed.setThumbnail(member.displayAvatarURL({ dynamic: true }));
+    } else {
+        goodbyeEmbed.setThumbnail('https://discord.com/assets/6debd47ed13483642cf09e832ed0bc1b.png'); // Standard-Avatar-URL
+    }
+goodbyeEmbed.setTimestamp();
     return goodbyeEmbed;
 }
-
-client.login(TOKEN)
+client.login(TOKEN);
