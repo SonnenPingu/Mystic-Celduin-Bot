@@ -8,3 +8,4 @@ It has some fun features, like link messages
 All the embeds can be fully customized.
 
 
+Please note that you need Nods.js and discord v14 for this!
