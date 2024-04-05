@@ -230,6 +230,48 @@ client.on('guildMemberRemove', (member) => {
     channel.send({ embeds: [goodbyeEmbed] });
 });
 
+// Message Linking as Embed. 
+client.on('messageCreate', async (message) => {
+  // Check whether the bot has access to the server
+  if (!message.guild || !message.guild.available) {
+    return;
+  }
+
+  // Check whether a message has been written in the correct format
+  const regex = /\/channels\/(\d+)\/(\d+)\/(\d+)/;
+  const match = message.content.match(regex);
+
+  if (match) {
+    const guildId = match[1];
+    const channelId = match[2];
+    const messageId = match[3];
+
+    try {
+      // Attempts to access the server, the channel and the message
+      const guild = await client.guilds.fetch(guildId);
+      const channel = await guild.channels.fetch(channelId);
+
+      if (channel) {
+        const fetchedMessage = await channel.messages.fetch(messageId);
+const author = {
+  name: fetchedMessage.author.tag,
+  iconURL: fetchedMessage.author.displayAvatarURL(), // Optional: Autors' Avatars URL };
+
+const embed = new EmbedBuilder()
+  .setAuthor(author) // Transfer object for the author
+  .setDescription(`${fetchedMessage.content}`)
+  .setColor('#0099ff');
+
+        // Send the embed to the current channel
+        await message.channel.send({ embeds: [embed] });
+        message.delete();
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  }
+});
+
 client.on('interactionCreate', async (interaction) => {
     if (interaction.isButton() && interaction.customId === 'teilnahme-button') {
         const giveawayData = activeGiveaways.get(interaction.message.id);
