@@ -1,0 +1,207 @@
+const fs = require('fs');
+const axios = require('axios');
+const { EmbedBuilder } = require('discord.js');
+
+let VeloStatusMessage = null;
+let MysticStatusMessage = null;
+let PanStatusMessage = null;
+let DrachenStatusMessage = null;
+let savedStatus = {};
+
+try {
+    savedStatus = JSON.parse(fs.readFileSync('Status.json', 'utf8'));
+} catch (error) {
+    console.error('Error loading saved statuses:', error);
+}
+
+// Function to get Bedrock server status
+async function getPanServerStatus() {
+    const serverAddress = 'YOUR_BEDROCK_SERVER_IP:PORT'; // Placeholder for Bedrock IP and port
+    const panStatusUrl = `https://api.mcsrvstat.us/3/${serverAddress}`;
+    try {
+        const response = await axios.get(panStatusUrl);
+        const panStatus = response.data;
+        return panStatus;
+    } catch (error) {
+        console.error('Error fetching Pan server status:', error);
+        return null;
+    }
+}
+
+async function getVeloServerStatus() {
+    const serverAddress = 'YOUR_VELOCITY_SERVER_IP:PORT'; // Placeholder for Velocity Proxy IP and port
+    const veloStatusUrl = `https://api.mcsrvstat.us/3/${serverAddress}`;
+    try {
+        const response = await axios.get(veloStatusUrl);
+        const veloStatus = response.data;
+        return veloStatus;
+    } catch (error) {
+        console.error('Error fetching Velocity server status:', error);
+        return null;
+    }
+}
+
+// Function to get Java server status
+async function getMysticServerStatus() {
+    const serverAddress = 'YOUR_JAVA_SERVER_IP:PORT'; // Placeholder for Java Server IP and port
+    const mysticStatusUrl = `https://api.mcsrvstat.us/3/${serverAddress}`;
+    try {
+        const response = await axios.get(mysticStatusUrl);
+        const mysticStatus = response.data;
+        return mysticStatus;
+    } catch (error) {
+        console.error('Error fetching Mystic server status:', error);
+        return null;
+    }
+}
+
+async function getDrachenServerStatus() {
+    const serverAddress = 'YOUR_DRACHEN_SERVER_IP:PORT'; // Placeholder for Drachen server IP and port
+    const drachenStatusUrl = `https://api.mcsrvstat.us/3/${serverAddress}`;
+    try {
+        const response = await axios.get(drachenStatusUrl);
+        const drachenStatus = response.data;
+        return drachenStatus;
+    } catch (error) {
+        console.error('Error fetching Drachen server status:', error);
+        return null;
+    }
+}
+
+async function updateServerStatus(client) {
+    const commonChannelId = 'YOUR_CHANNEL_ID'; // Placeholder for the channel ID
+    const commonChannel = client.channels.cache.get(commonChannelId);
+    if (!commonChannel) {
+        console.error('The specified channel was not found.');
+        return;
+    }
+
+    const veloStatus = await getVeloServerStatus();
+    const mysticStatus = await getMysticServerStatus();
+    const panStatus = await getPanServerStatus();
+    const drachenStatus = await getDrachenServerStatus();
+
+    // Update or send embeds
+    VeloStatusMessage = await sendOrUpdateEmbed(commonChannel, veloEmbed('Mystic Network', veloStatus), savedStatus.VeloStatusMessage);
+    MysticStatusMessage = await sendOrUpdateEmbed(commonChannel, mysticEmbed('Mystic Celduin', mysticStatus), savedStatus.MysticStatusMessage);
+    PanStatusMessage = await sendOrUpdateEmbed(commonChannel, panEmbed('Mystic Pandoria', panStatus), savedStatus.PanStatusMessage);
+    DrachenStatusMessage = await sendOrUpdateEmbed(commonChannel, drachenEmbed('Drachenpforte', drachenStatus), savedStatus.DrachenStatusMessage);
+
+    // Save message IDs
+    savedStatus.VeloStatusMessage = VeloStatusMessage ? VeloStatusMessage.id : null;
+    savedStatus.MysticStatusMessage = MysticStatusMessage ? MysticStatusMessage.id : null;
+    savedStatus.PanStatusMessage = PanStatusMessage ? PanStatusMessage.id : null;
+    savedStatus.DrachenStatusMessage = DrachenStatusMessage ? DrachenStatusMessage.id : null;
+
+    saveStatusToFile(savedStatus);
+}
+
+async function sendOrUpdateEmbed(channel, embed, messageId) {
+    try {
+        if (messageId) {
+            const previousMessage = await channel.messages.fetch(messageId);
+            await previousMessage.edit({ embeds: [embed] });
+            return previousMessage;
+        } else {
+            const newMessage = await channel.send({ embeds: [embed] });
+            return newMessage;
+        }
+    } catch (error) {
+        console.error('Fehler beim Senden oder Aktualisieren des Embeds:', error);
+        return null;
+    }
+}
+
+function saveStatusToFile(status) {
+    fs.writeFileSync('Status.json', JSON.stringify(status, null, 2), 'utf8');
+}
+
+function MysticEmbed(title, serverStatus) {
+    const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setColor(serverStatus.online ? '#FF7F00' : '#FF0000');
+    if (serverStatus.online) {
+        const playersOnline = serverStatus.players.online;
+        const maxPlayers = serverStatus.players.max;
+        const version = serverStatus.version || '1.20.4';
+         const logoUrl = 'YOUR_MYSTIC_LOGO_URL'; // Placeholder for Mystic logo
+        embed.setThumbnail(logoUrl);
+        embed.addFields(
+            { name: 'Server Status', value: 'Online' },
+            { name: 'ServerName', value: 'Mystic Celduin' }
+        );
+        embed.setTimestamp();
+    } else {
+        embed.addFields({ name: 'Server Status', value: 'Offline' });
+    }
+    return embed;
+}
+
+function PanEmbed(title, serverStatus) {
+    const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setColor(serverStatus.online ? '#00ffff' : '#FF0000');
+    if (serverStatus.online) {
+        const playersOnline = serverStatus.players.online;
+        const maxPlayers = serverStatus.players.max;
+        const version = serverStatus.version || '1.20.72';
+         const logoUrl = 'YOUR_MYSTIC_LOGO_URL'; // Placeholder for Mystic logo
+        embed.setThumbnail(logoUrl);
+        embed.addFields(
+            { name: 'Server Status', value: 'Online' },
+            { name: 'ServerName', value: 'Mystic Pandoria' }
+        );
+        embed.setTimestamp();
+    } else {
+        embed.addFields({ name: 'Server Status', value: 'Offline' });
+    }
+    return embed;
+}
+
+function DrachenEmbed(title, serverStatus) {
+    const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setColor(serverStatus.online ? '#00ffff' : '#FF0000');
+    if (serverStatus.online) {
+        const playersOnline = serverStatus.players.online;
+        const maxPlayers = serverStatus.players.max;
+        const version = serverStatus.version || '1.20.72';
+         const logoUrl = 'YOUR_MYSTIC_LOGO_URL'; // Placeholder for Mystic logo
+        embed.setThumbnail(logoUrl);
+        embed.addFields(
+            { name: 'Server Status', value: 'Online' },
+            { name: 'ServerName', value: 'Drachenpforte' }
+        );
+        embed.setTimestamp();
+    } else {
+        embed.addFields({ name: 'Server Status', value: 'Offline' });
+    }
+    return embed;
+}
+
+function VeloEmbed(title, serverStatus) {
+    const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setColor(serverStatus.online ? '#FF7F00' : '#FF0000');
+    if (serverStatus.online) {
+        const playersOnline = serverStatus.players.online;
+        const maxPlayers = serverStatus.players.max;
+        const version = serverStatus.version || '1.19-1.20.4';
+         const logoUrl = 'YOUR_MYSTIC_LOGO_URL'; // Placeholder for Mystic logo
+        embed.setThumbnail(logoUrl);
+        embed.addFields(
+            { name: 'Server Status', value: 'Online' },
+            { name: 'Spieler', value: `${playersOnline}/${maxPlayers}` },
+            { name: 'Serveradresse', value: 'minecraft.mystic-celduin.de' },
+            { name: 'Version', value: version }
+        );
+        embed.setTimestamp();
+    } else {
+        embed.addFields({ name: 'Server Status', value: 'Offline' });
+    }
+    return embed;
+}
+
+module.exports = {
+    updateServerStatus,
+};

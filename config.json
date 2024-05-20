@@ -1,0 +1,5 @@
+{
+"token": "Token" // This can be created at: https://discord.com/developers/applications 
+"registerCommandsGlobally": true,
+"guildId": "xxx" //replace this 
+}
